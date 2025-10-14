@@ -1,0 +1,142 @@
+from fasthtml.common import *
+import sqlite3
+from datetime import datetime
+
+# --- Configuração do banco de dados ---
+DB_FILE = 'ponto.db'
+
+def get_db():
+    """Retorna uma nova conexão com o banco (thread-safe)."""
+    conn = sqlite3.connect(DB_FILE, timeout=10)
+    conn.row_factory = sqlite3.Row  # Permite acesso por nome da coluna
+    return conn
+
+def init_db():
+    """Cria a tabela se não existir."""
+    with get_db() as conn:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS registros (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome TEXT NOT NULL,
+                entrada TEXT NOT NULL,
+                saida TEXT
+            )
+        ''')
+
+# Inicializa o banco ao iniciar a aplicação
+init_db()
+
+# --- Funções auxiliares ---
+def formatar_datetime_para_input(dt_str):
+    """Converte '2024-06-01 14:30:00' → '2024-06-01T14:30' (para input datetime-local)."""
+    if not dt_str:
+        return ''
+    return dt_str[:16].replace(' ', 'T')
+
+def calcular_horas_e_extras(entrada_str, saida_str):
+    if not saida_str or not entrada_str:
+        return "—", "—"
+    try:
+        fmt = "%Y-%m-%d %H:%M:%S"
+        entrada = datetime.strptime(entrada_str, fmt)
+        saida = datetime.strptime(saida_str, fmt)
+        if saida < entrada:
+            return "Inválido", "Inválido"
+        diff = saida - entrada
+        total_horas = diff.total_seconds() / 3600
+        extras = max(0.0, total_horas - 8.0)
+        return f"{total_horas:.1f}h", f"{extras:.1f}h"
+    except Exception:
+        return "Erro", "Erro"
+
+# --- Aplicação FastHTML ---
+app, rt = fast_app()
+
+@rt("/")
+def get():
+    with get_db() as conn:
+        registros = conn.execute(
+            "SELECT * FROM registros ORDER BY entrada DESC"
+        ).fetchall()
+
+    linhas = []
+    for r in registros:
+        total, extras = calcular_horas_e_extras(r['entrada'], r['saida'])
+        linhas.append(Tr(
+            Td(r['id']),
+            Td(r['nome']),
+            Td(r['entrada']),
+            Td(r['saida'] or "—"),
+            Td(total),
+            Td(extras)
+        ))
+
+    return Title("Controle de Ponto"), Main(
+        H1("📊 Controle de Horários dos Colaboradores"),
+        Section(
+            H2("Registrar Entrada"),
+            Form(
+                Input(name="nome", placeholder="Nome do colaborador", required=True),
+                Input(name="entrada", type="datetime-local", required=True),
+                Button("✅ Registrar Entrada", type="submit"),
+                method="post", action="/entrada"
+            )
+        ),
+        Br(),
+        Section(
+            H2("Registrar Saída"),
+            P("Informe o ID do registro e a data/hora de saída:"),
+            Form(
+                Input(name="registro_id", type="number", placeholder="ID do registro", required=True, min="1"),
+                Input(name="saida", type="datetime-local", required=True),
+                Button("🚪 Registrar Saída", type="submit"),
+                method="post", action="/saida"
+            )
+        ),
+        Br(),
+        H2("Relatório de Horas"),
+        Table(
+            Thead(Tr(
+                Th("ID"), Th("Nome"), Th("Entrada"), Th("Saída"),
+                Th("Total"), Th("Extras")
+            )),
+            Tbody(*linhas) if linhas else Tbody(Tr(Td("Nenhum registro", colspan=6, style="text-align:center")))
+        ),
+        style="max-width: 1000px; margin: 0 auto; padding: 20px; font-family: sans-serif;"
+    )
+
+# --- Rotas POST ---
+@rt("/entrada")
+def post(nome: str, entrada: str):
+    # Validação simples
+    if not nome.strip():
+        return RedirectResponse("/", status_code=303)
+    # Formato: '2024-06-01T14:30' → '2024-06-01 14:30:00'
+    entrada_fmt = entrada.replace("T", " ") + ":00"
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO registros (nome, entrada, saida) VALUES (?, ?, NULL)",
+            (nome.strip(), entrada_fmt)
+        )
+    return RedirectResponse("/", status_code=303)
+
+@rt("/saida")
+def post(registro_id: int, saida: str):
+    if registro_id <= 0:
+        return RedirectResponse("/", status_code=303)
+    saida_fmt = saida.replace("T", " ") + ":00"
+    with get_db() as conn:
+        # Verifica se o registro existe e não tem saída
+        cur = conn.execute("SELECT id FROM registros WHERE id = ? AND saida IS NULL", (registro_id,))
+        if not cur.fetchone():
+            # Opcional: exibir mensagem de erro (futuramente com toast)
+            pass
+        conn.execute(
+            "UPDATE registros SET saida = ? WHERE id = ?",
+            (saida_fmt, registro_id)
+        )
+    return RedirectResponse("/", status_code=303)
+
+# --- Rodar a aplicação ---
+if __name__ == "__main__":
+    serve()
