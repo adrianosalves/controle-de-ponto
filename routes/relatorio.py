@@ -50,8 +50,7 @@ def get_relatorio_page(nome="", periodo="todos"):
             P(f"🌙 Noturnas (21h-24h): {totais['noturnas']}h"),
             P(f"🌌 Adicional Noturno (0h-7h): {totais['adicional_noturno']}h"),
             P(f"⏱️ Total de intervalos: {totais['intervalo_total']}h"),
-            P(f"⚠️ Registros pendentes (sem saída): {totais['pendentes']}"),
-            style="background:#f0f8ff; padding:15px; border-radius:8px; margin:20px 0; border-left:4px solid #2196F3;"
+            P(f"⏳ Horas pendentes (abaixo de 8h): {totais['horas_pendentes']}h"),style="background:#f0f8ff; padding:15px; border-radius:8px; margin:20px 0; border-left:4px solid #2196F3;"
         )
     else:
         totais_html = Div()
