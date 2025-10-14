@@ -1,16 +1,32 @@
 # routes/home.py
 from fasthtml.common import *
 from db.database import get_db_connection
-from utils.calculos import formatar_relatorio_horas
+from utils.calculos import formatar_relatorio_horas, somar_horas_por_registros
 from utils.formatacao import formatar_data_brasil
 
 SITUACOES_VALIDAS = ["Trabalho", "Descanso", "Folga Remunerada", "Feriado", "Férias"]
 
 def get_home_page():
     with get_db_connection() as conn:
+        # Registros recentes (todos)
         registros = conn.execute(
             "SELECT * FROM registros ORDER BY entrada DESC"
         ).fetchall()
+        
+        # Só registros de "Trabalho" para cálculo de pendência
+        registros_trabalho = conn.execute(
+            "SELECT * FROM registros WHERE situacao_dia = 'Trabalho'"
+        ).fetchall()
+
+    # Calcula resumo de horas pendentes
+    resumo = somar_horas_por_registros(registros_trabalho)
+    resumo_html = Div(
+        P(
+            f"⏳ Horas pendentes (abaixo de 8h): {resumo['horas_pendentes']}h",
+            style="background:#fff8e1; padding:10px; border-radius:6px; font-weight:bold; color:#e65100; display:inline-block;"
+        ),
+        style="text-align:right; margin: 15px 0;"
+    )
 
     icone_situacao = {
         "Trabalho": "🟢",
@@ -22,28 +38,28 @@ def get_home_page():
 
     linhas = []
     for r in registros:
-        # ✅ ACESSO SEGURO: usa .get() via dict(r) ou fallback
-        situacao = r['situacao_dia'] if 'situacao_dia' in r.keys() else "Trabalho"
+        situacao = r['situacao_dia'] or "Trabalho"
         icone = icone_situacao.get(situacao, "⚪")
-        rel = formatar_relatorio_horas(r['entrada'], r['saida'],
-                                       r['inicio_intervalo'], r['fim_intervalo']
-                                       )
+        rel = formatar_relatorio_horas(
+            r['entrada'], r['saida'],
+            r['inicio_intervalo'], r['fim_intervalo']
+        )
         linhas.append(Tr(
             Td(f"{icone} {situacao}"),
             Td(A("✏️ Editar", href=f"/editar/{r['id']}", style="text-decoration:none; color:#1976D2;")),
             Td(r['id']),
             Td(r['nome']),
-            Td(formatar_data_brasil(r['entrada'], incluir_hora=True)),          
-            Td(r['inicio_intervalo'] or "—"),
-            Td(r['fim_intervalo'] or "—"),
+            Td(formatar_data_brasil(r['entrada'], incluir_hora=True)),
+            Td(formatar_data_brasil(r['inicio_intervalo'], incluir_hora=True)),
+            Td(formatar_data_brasil(r['fim_intervalo'], incluir_hora=True)),
             Td(formatar_data_brasil(r['saida'], incluir_hora=True)),
-            Td(rel["intervalo"]),
             Td(rel["total"]),
             Td(rel["extras_50"]),
             Td(rel["extras_100"]),
             Td(rel["noturnas"]),
             Td(rel["adicional_noturno"]),
-            Td(r['observacoes'] if 'observacoes' in r.keys() else "—")
+            Td(rel["intervalo"]),
+            Td(r['observacoes'] or "—")
         ))
 
     opcoes_situacao = [Option(s, value=s) for s in SITUACOES_VALIDAS]
@@ -64,7 +80,7 @@ def get_home_page():
                 Label("Data e hora de entrada:", style="font-weight:bold; margin-top:10px;"),
                 Input(name="entrada", type="datetime-local", required=True, style="width:100%; margin:5px 0; padding:8px;"),
                 
-                Label("Situação do dia:", style="font-weight:bold; margin-top:10px;"),
+                Label("Situação do Dia:", style="font-weight:bold; margin-top:10px;"),
                 Select(*opcoes_situacao, name="situacao_dia", style="width:100%; margin:5px 0; padding:8px;"),
                 
                 Label("Observações (opcional):", style="font-weight:bold; margin-top:10px;"),
@@ -89,6 +105,7 @@ def get_home_page():
             )
         ),
         Br(),
+        resumo_html,  # ✅ Exibe o resumo de horas pendentes aqui
         H2("Registros Recentes"),
         Table(
             Thead(Tr(
@@ -105,9 +122,10 @@ def get_home_page():
                 Th("100%"),
                 Th("Noturnas"),
                 Th("Adic. Noturno"),
+                Th("Intervalo"),
                 Th("Observações")
             )),
-            Tbody(*linhas) if linhas else Tbody(Tr(Td("Nenhum registro encontrado", colspan=12, style="text-align:center; color:#888;")))
+            Tbody(*linhas) if linhas else Tbody(Tr(Td("Nenhum registro encontrado", colspan=15, style="text-align:center; color:#888;")))
         ),
-        style="max-width: 1500px; margin: 0 auto; padding: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;"
+        style="max-width: 1600px; margin: 0 auto; padding: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 0.9em;"
     )
