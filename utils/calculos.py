@@ -133,34 +133,59 @@ def formatar_relatorio_horas(entrada_str: str, saida_str: str | None, inicio_int
         
 # utils/calculos.py (adicione ao final)
 
-def somar_horas_por_registros(registros):
+def somar_horas_por_registros(registros, jornada_padrao: float = 8.0):
     total_horas = 0.0
     total_extras_50 = 0.0
     total_extras_100 = 0.0
     total_noturnas = 0.0
     total_adicional_noturno = 0.0
     total_intervalo = 0.0
-    pendentes = 0
+    total_horas_pendentes = 0.0  # ✅ Nova métrica
+
+    agora = datetime.now()
 
     for r in registros:
-        if not r['saida']:
-            pendentes += 1
-            continue
         try:
             fmt = "%Y-%m-%d %H:%M:%S"
             entrada = datetime.strptime(r['entrada'], fmt)
-            saida = datetime.strptime(r['saida'], fmt)
-            inicio_intervalo = datetime.strptime(r['inicio_intervalo'], fmt) if r['inicio_intervalo'] else None
-            fim_intervalo = datetime.strptime(r['fim_intervalo'], fmt) if r['fim_intervalo'] else None
             
-            detalhes = calcular_detalhes_horas(entrada, saida, inicio_intervalo, fim_intervalo)
+            if not r['saida']:
+                # Registro aberto: calcular até agora
+                saida = agora
+                inicio_intervalo = datetime.strptime(r['inicio_intervalo'], fmt) if r['inicio_intervalo'] else None
+                fim_intervalo = datetime.strptime(r['fim_intervalo'], fmt) if r['fim_intervalo'] else None
+                
+                # Ajustar: se agora está antes da entrada, ignora
+                if saida <= entrada:
+                    continue
+                    
+                detalhes = calcular_detalhes_horas(entrada, saida, inicio_intervalo, fim_intervalo)
+                horas_trabalhadas = detalhes["total_horas"] if "erro" not in detalhes else 0.0
+            else:
+                # Registro fechado
+                saida = datetime.strptime(r['saida'], fmt)
+                inicio_intervalo = datetime.strptime(r['inicio_intervalo'], fmt) if r['inicio_intervalo'] else None
+                fim_intervalo = datetime.strptime(r['fim_intervalo'], fmt) if r['fim_intervalo'] else None
+                
+                if saida <= entrada:
+                    continue
+                    
+                detalhes = calcular_detalhes_horas(entrada, saida, inicio_intervalo, fim_intervalo)
+                horas_trabalhadas = detalhes["total_horas"] if "erro" not in detalhes else 0.0
+
+            # Acumula totais
             if "erro" not in detalhes:
-                total_horas += detalhes["total_horas"]
-                total_extras_50 += detalhes["extras_50"]
-                total_extras_100 += detalhes["extras_100"]
-                total_noturnas += detalhes["noturnas"]
-                total_adicional_noturno += detalhes["adicional_noturno"]
-                total_intervalo += detalhes["intervalo_horas"]
+                total_horas += detalhes.get("total_horas", 0.0)
+                total_extras_50 += detalhes.get("extras_50", 0.0)
+                total_extras_100 += detalhes.get("extras_100", 0.0)
+                total_noturnas += detalhes.get("noturnas", 0.0)
+                total_adicional_noturno += detalhes.get("adicional_noturno", 0.0)
+                total_intervalo += detalhes.get("intervalo_horas", 0.0)
+
+            # Calcula horas pendentes (se < jornada)
+            if horas_trabalhadas < jornada_padrao:
+                total_horas_pendentes += (jornada_padrao - horas_trabalhadas)
+
         except Exception:
             continue
 
@@ -171,5 +196,5 @@ def somar_horas_por_registros(registros):
         "noturnas": round(total_noturnas, 1),
         "adicional_noturno": round(total_adicional_noturno, 1),
         "intervalo_total": round(total_intervalo, 1),
-        "pendentes": pendentes
+        "horas_pendentes": round(total_horas_pendentes, 1)  # ✅ Substitui "pendentes"
     }
