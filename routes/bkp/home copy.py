@@ -77,6 +77,18 @@ def get_home_page():
             )
         ),
         Br(),
+        Section(
+            H2("Registrar Saída"),
+            P("Informe o ID do registro e a data/hora de saída:"),
+            Form(
+                Input(name="registro_id", type="number", placeholder="ID do registro", required=True, min="1", style="padding:8px; margin-right:10px; width:120px;"),
+                Input(name="saida", type="datetime-local", required=True, style="padding:8px; margin-right:10px;"),
+                Button("🚪 Registrar Saída", type="submit", style="padding:10px 15px; background:#2196F3; color:white; border:none; border-radius:4px; cursor:pointer;"),
+                method="post",
+                action="/saida"
+            )
+        ),
+        Br(),
         H2("Registros Recentes"),
         Table(
             Thead(Tr(
